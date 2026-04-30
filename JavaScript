@@ -1,0 +1,56 @@
+const express = require('express');
+const httpProxy = require('http-proxy');
+const { v4: uuidv4 } = require('uuid');
+
+const app = express();
+const proxy = httpProxy.createProxyServer({});
+
+app.use(express.json());
+
+const PORT = process.env.PORT || 3000;
+
+let keys = [];
+
+function getIP(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
+}
+
+// gerar key
+app.get('/generate-key', (req, res) => {
+  const key = uuidv4();
+  keys.push({ key, ip: null, active: true });
+  res.json({ key });
+});
+
+// update ip
+app.post('/update-ip', (req, res) => {
+  const key = req.headers['x-api-key'];
+  const found = keys.find(k => k.key === key && k.active);
+
+  if (!found) return res.status(403).send("key inválida");
+
+  found.ip = getIP(req);
+
+  res.json({ ip: found.ip });
+});
+
+// proxy
+app.use('/proxy', (req, res) => {
+  const key = req.headers['x-api-key'];
+  const found = keys.find(k => k.key === key && k.active);
+
+  if (!found) return res.status(403).send("key inválida");
+
+  if (found.ip !== getIP(req)) {
+    return res.status(403).send("ip bloqueado");
+  }
+
+  proxy.web(req, res, {
+    target: 'http://example.com',
+    changeOrigin: true
+  });
+});
+
+app.listen(PORT, () => {
+  console.log("rodando");
+});
